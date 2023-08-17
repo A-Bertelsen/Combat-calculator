@@ -1,67 +1,50 @@
 /*
-Version 1.3
+Version 1.5
 By André Bertelsen
-Date: 07/09/2022
+Date: 17/08/2023
 */
-
 
 // include the library code:
 #include <LiquidCrystal.h>
 #include <Bounce2.h>
-#include <SimpleTimer.h>
 
 //LCD
 LiquidCrystal lcd(13, 12, 10, 9, 8, 7);
-const int contrast_pin = 11;
 
 //Buttons
 const int SW_AirTime1 = 3, SW_pos1 = 5, SW_neg1 = 4, SW_BoutTime = 6, SW_AirTime2 = A0, SW_pos2 = A2, SW_neg2 = A1;
 
 int Bounce_interval = 5;
 int cnt = 0;
+bool land_flag1 = false;
+bool land_flag2 = false;
 
-Bounce AirTime1 = Bounce();
-Bounce AirTime2 = Bounce();
-Bounce pos1 = Bounce();
-Bounce pos2 = Bounce();
-Bounce neg1 = Bounce();
-Bounce neg2 = Bounce();
-Bounce BoutTime = Bounce();
+Bounce2::Button AirTime1 = Bounce2::Button();
+Bounce2::Button AirTime2 = Bounce2::Button();
+Bounce2::Button pos1 = Bounce2::Button();
+Bounce2::Button pos2 = Bounce2::Button();
+Bounce2::Button neg1 = Bounce2::Button();
+Bounce2::Button neg2 = Bounce2::Button();
+Bounce2::Button BoutTime = Bounce2::Button();
 
 //Timer variables
 int bout_length = 270; //this is incl 30sec warm up
+
 long int GlobalTime = 0, Player1_AirTime = 0, Player2_AirTime = 0, ground_time1 = 0, ground_time2 = 0, last_millis =0;
-int cuts1 = 0, cuts2 = 0, penalty1 = 0, penalty2 = 0, points1 = 0, points2 = 0, point_diff = 0, s = -30, m = 0;;
+int cuts1 = 0, cuts2 = 0, penalty1 = 0, penalty2 = 0, points1 = 0, points2 = 0, point_diff1 = 0,  point_diff2 = 0, s = -30, m = 0;
 
-
-//Timer
-SimpleTimer timer;
 /*----------------------------------------------------------------------------------------------------*/
 void setup() {
   Serial.begin(9600);
 
-
-  //set contrast of display
-  analogWrite(contrast_pin, 35);
-
-  // set pull-up on
-  pinMode(SW_AirTime1, INPUT_PULLUP);
-  pinMode(SW_AirTime2, INPUT_PULLUP);
-  pinMode(SW_pos1, INPUT_PULLUP);
-  pinMode(SW_pos2, INPUT_PULLUP);
-  pinMode(SW_neg1, INPUT_PULLUP);
-  pinMode(SW_neg2, INPUT_PULLUP);
-  pinMode(SW_BoutTime, INPUT_PULLUP);
-
-  // After setting up the buttons, setup the Bounce instances :
-  AirTime1.attach(SW_AirTime1);
-  AirTime2.attach(SW_AirTime2);
-  pos1.attach(SW_pos1);
-  pos2.attach(SW_pos2);
-  neg1.attach(SW_neg1);
-  neg2.attach(SW_neg2);
-  BoutTime.attach(SW_BoutTime);
-
+  AirTime1.attach(SW_AirTime1, INPUT_PULLUP);
+  AirTime2.attach(SW_AirTime2, INPUT_PULLUP);
+  pos1.attach(SW_pos1, INPUT_PULLUP);
+  pos2.attach(SW_pos2, INPUT_PULLUP);
+  neg1.attach(SW_neg1, INPUT_PULLUP);
+  neg2.attach(SW_neg2, INPUT_PULLUP);
+  BoutTime.attach(SW_BoutTime, INPUT_PULLUP);
+  
   // interval in ms
   AirTime1.interval(Bounce_interval);
   AirTime2.interval(Bounce_interval);
@@ -70,6 +53,14 @@ void setup() {
   neg1.interval(Bounce_interval);
   neg2.interval(Bounce_interval);
   BoutTime.interval(Bounce_interval);
+
+  AirTime1.setPressedState(HIGH); 
+  AirTime2.setPressedState(HIGH); 
+  pos1.setPressedState(LOW); 
+  pos2.setPressedState(LOW); 
+  neg1.setPressedState(LOW); 
+  neg2.setPressedState(LOW); 
+  BoutTime.setPressedState(HIGH); 
 
   // set up the LCD's number of columns and rows:
   lcd.begin(16, 4);
@@ -80,105 +71,129 @@ void setup() {
   //Timer objects to run
   //timer.setInterval(1000, UpdateTimers);
 
-
+  Serial.println("Setup done");
 }
 /*----------------------------------------------------------------------------------------------------*/
 void loop() {
 
-  Update_buttons();
+
+  Update_buttons(); //update button states
+  GlobalTime2SecMin(); //convert current globaltime to sec and min
 
   
   if (GlobalTime <= bout_length && BoutTime.read() == HIGH) { //stop timer at 4:00,
-    //timer.run();
     Tick_Tock(); //run timer
     updatecuts_updatepenalty();
+    Pointdiff_print();
   }
-
-  if (ToLandOrNotToLand(points1, points2)) { //player 1 should land
-
-    point_diff =   points1 - ((cuts2 * 100) + ((bout_length - 30) - ground_time2) * 2 - penalty2);
-
-    if (point_diff > 99) {
-      lcd.setCursor(0, 3);
-      lcd.print("LAND");
-      lcd.setCursor(13, 3);
-      lcd.print(point_diff);
-    }
-    if (point_diff < 100) {
-      lcd.setCursor(0, 3);
-      lcd.print("LAND");
-      lcd.setCursor(13, 3);
-      lcd.print(" ");
-      lcd.print(point_diff);
-
-    }
-
-
-  }
-  else if (ToLandOrNotToLand(points2, points1)) { //player 2 should land
-
-    point_diff =   points2 - ((cuts1 * 100) + ((bout_length - 30) - ground_time1) * 2 - penalty1);
-
-    lcd.setCursor(12, 3);
-    lcd.print("LAND");
-    lcd.setCursor(0, 3);
-    lcd.print(point_diff);
-
-
-    if (point_diff > 99) {
-      lcd.setCursor(12, 3);
-      lcd.print("LAND");
-      lcd.setCursor(0, 3);
-      lcd.print(point_diff);
-    }
-    if (point_diff < 100) {
-      lcd.setCursor(12, 3);
-      lcd.print("LAND");
-      lcd.setCursor(0, 3);
-      lcd.print(point_diff);
-      lcd.print("  ");
-
-    }
-  }
-  else {
-    lcd.setCursor(0, 3);
-    lcd.print("    ");
-    lcd.setCursor(12, 3);
-    lcd.print("    ");
-  }
-
-
 
   if(BoutTime.fell()) {
-     Serial.println("Bout end");
+    Serial.println("Bout end");
     GlobalTime = 0, Player1_AirTime = 0, Player2_AirTime = 0, ground_time1 = 0, ground_time2 = 0;
-    cuts1 = 0, cuts2 = 0, penalty1 = 0, penalty2 = 0, points1 = 0, points2 = 0, point_diff = 0;
-    s=-31; //a hack to compensate for something
+    cuts1 = 0, cuts2 = 0, penalty1 = 0, penalty2 = 0, points1 = 0, points2 = 0, point_diff1 = 0, point_diff2 = 0;
+    s=-30; //a hack to make it work
     m=0;
+    land_flag1 = false;
+    land_flag2 = false;
     while( BoutTime.read() == LOW){
-      Update_buttons();
+      Update_buttons(); //keep updating buttons so that we can reset
       }
-    
   }
 
   if(BoutTime.rose()) {
-    //Serial.println("Bout Start");
-
-    Tick_Tock(); //run timer
+    Serial.println("Bout Start");
+    lcd.clear();
+    Tick_Tock();
     updatecuts_updatepenalty();
     init_lcd_text();
     }
-
 }
 
 /*----------------------------------------------------------------------------------------------------*/
 
 void Tick_Tock(){
-  if(millis()>= last_millis+1000){//1000millis has passed, update timers
-  UpdateTimers();
-  last_millis=millis();
+  long int now = millis();
+  
+  if(now >= last_millis+1000){ //1000 millis has passed, update timers
+    //Serial.println(now - last_millis);     
+    GlobalTime++;
+    UpdateTimers();
+    last_millis = now;
+
+
+    
   }
 }
+/*----------------------------------------------------------------------------------------------------*/
+void Pointdiff_print(){
+  static int point_diff1_old = 0;
+  static int point_diff2_old = 0;
+  
+  point_diff1 =   points1 - ((cuts2 * 100) + ((bout_length - 30) - ground_time2) * 2 - penalty2);
+  point_diff2 =   points2 - ((cuts1 * 100) + ((bout_length - 30) - ground_time1) * 2 - penalty1);
+
+
+  if(ToLandOrNotToLand(points1, points2) && land_flag1 == false){
+      land_flag1 = true;
+      lcd.setCursor(0, 3);
+      lcd.print("LAND");
+    }
+   else if(land_flag1 == true &&  ToLandOrNotToLand(points1, points2) == false ){//state changed, so delete land flag
+      lcd.setCursor(0, 3);
+      lcd.print("    ");
+      lcd.setCursor(12, 3);
+      lcd.print("    ");
+      land_flag1 = false;
+    }
+
+  if(ToLandOrNotToLand(points2, points1) && land_flag2 == false){
+      land_flag2 = true;
+      lcd.setCursor(12, 3);
+      lcd.print("LAND");
+    }
+   else if(land_flag2 == true &&  ToLandOrNotToLand(points2, points1) == false ){//state changed, so delete land flag
+      lcd.setCursor(0, 3);
+      lcd.print("    ");
+      lcd.setCursor(12, 3);
+      lcd.print("    ");
+      land_flag1 = false;
+    }
+
+
+  if(point_diff1 != point_diff1_old  && land_flag1){//points have changed and we can land, print new points
+
+      
+      if (point_diff1 > 99) {
+        lcd.setCursor(13, 3);
+        lcd.print(point_diff1);
+      }
+      if (point_diff1 < 100) {
+        lcd.setCursor(13, 3);
+        lcd.print(" ");
+        lcd.print(point_diff1);
+      }
+    }
+
+  if(point_diff2 != point_diff2_old  &&  ToLandOrNotToLand(points2, points1)){//points have changed and we can land, print new points
+      lcd.setCursor(12, 3);
+      lcd.print("LAND");
+      
+      if (point_diff2 > 99) {
+        lcd.setCursor(0, 3);
+        lcd.print(point_diff2);
+      }
+      if (point_diff2 < 100) {
+        lcd.setCursor(0, 3);
+        lcd.print(point_diff2);
+        lcd.print("  ");
+      }
+    }
+
+
+  point_diff1_old = point_diff1;
+  point_diff2_old = point_diff2;
+  
+  }
 /*----------------------------------------------------------------------------------------------------*/
 
 void Update_buttons() {
@@ -190,29 +205,61 @@ void Update_buttons() {
   neg1.update();
   neg2.update();
   BoutTime.update();
+/*
+  Serial.print("AirTime1: ");
+  Serial.println(AirTime1.read());
+  
+  Serial.print("AirTime2: ");
+  Serial.println(AirTime2.read());
+  
+  Serial.print("pos1: ");
+  Serial.println(pos1.read());
+  
+  Serial.print("pos2: ");
+  Serial.println(pos2.read());
+  
+  Serial.print("neg1: ");
+  Serial.println(neg1.read());
+  
+  Serial.print("neg2: ");
+  Serial.println(neg2.read());
+  
+  Serial.print("BoutTime: ");
+  Serial.println(BoutTime.read());
+
+*/
+
 }
 
 /*----------------------------------------------------------------------------------------------------*/
+void GlobalTime2SecMin(){
+
+    s = (GlobalTime-30) % 60;
+
+    m = ((GlobalTime-30)/60) % 60;
+
+    
+  if(pos1.read() == LOW &&  pos2.read() == LOW && s < 0 ){ //skip warmup
+    while(pos1.read() == LOW &&  pos2.read() == LOW){
+      Update_buttons();
+      s = 0;
+      GlobalTime = 30;
+      UpdateTimers();
+
+      }
+    
+    }
+
+  }
+
+/*----------------------------------------------------------------------------------------------------*/
+
 
 void UpdateTimers() {
 
-  if (BoutTime.read() == HIGH) {
-    GlobalTime++; //add one to globalTime
-    s++;
-    Serial.println(GlobalTime);
-  }
-
-  if(pos1.read() == HIGH &&  pos2.read() == HIGH && GlobalTime<=30){ //skip warmup
-    GlobalTime = 29; //hack - should be 30
-    s= 0;
-    m = 0;
-    }
-
-  if (s > 0) { //make sure no noe gets airtime in warm-up
+  if (GlobalTime > 31) { //make sure no noe gets airtime in warm-up
     if (AirTime1.read() == HIGH) {
       Player1_AirTime++;
-
-
       print_airtime1();
       calc_print_points_1();
     }
@@ -225,17 +272,6 @@ void UpdateTimers() {
 
     ground_time1 = GlobalTime - Player1_AirTime - 30;
     ground_time2 = GlobalTime - Player2_AirTime - 30;
-    Serial.print("ground_time1: ");
-    Serial.println(ground_time1);
-    Serial.print("ground_time2: ");
-    Serial.println(ground_time2);
-  }
-  if (s >= 60) {
-    s = 0;
-    m = m + 1;
-    if (m >= 10) { //loop around after 10mins
-      m = 0;
-    }
   }
 
   if (s < 0) {
@@ -514,32 +550,35 @@ boolean ToLandOrNotToLand(int MyPoints, int HisPoints) {
 
   /*----------------------------------------------------------------------------------------------------*/
 
-int button_state(Bounce &theButton) {
+int button_state(Bounce2::Button &theButton) {
 
-  static long int roseTime = 0, oldFallTime = 0;
+  static long int fellTime = 0;
   static boolean Press = false;
 
-  if (theButton.rose()) { //see that we pressed the button
-    roseTime = millis(); //note the time of the press
+  if (theButton.pressed()) { //see that we pressed the button
     Press = true;      //set a flag that the button is pressed
+    fellTime = millis(); //note the time of the press
+    Serial.println("a button was pressed");
   }
 
 
 
-  if (theButton.read() == HIGH && millis() - roseTime >= 1000 &&  Press) { //if the button is high and enough time has passed - long press
-    //Serial.println("longPress");
+  if (Press && theButton.rose() &&  millis() - fellTime > 500) { //if the button is high and enough time has passed - long press
+    Serial.println("longPress");
     Press = false; //reset flag
     return 1;
   }
 
-  if (theButton.fell() &&  millis() - roseTime > 30 &&  millis() - roseTime < 1000 && Press) { //if fell and less that 1000ms has passed - short
-    //Serial.println("shortPress");
+  else if (Press && theButton.rose() && millis() - fellTime > Bounce_interval*2 && millis() - fellTime < 500){ //if fell and less that 1000ms has passed - short
+    Serial.println("shortPress");
     Press = false; //reset flag
     return 2;
   }
-
+  else {
   // nothing happned
   return -1;
+  Serial.println("nothing happned");
+  }
 }
 /*----------------------------------------------------------------------------------------------------*/
 void init_lcd_text() {
@@ -571,4 +610,8 @@ void init_lcd_text() {
   lcd.setCursor(12, 2);
   lcd.print("   ");
   lcd.print(points2);
+
+  lcd.setCursor(6, 3);
+  //lcd.print("-:30");
+  
 }
